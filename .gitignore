@@ -1,0 +1,22 @@
+# ==========================================
+# Keil & STM32 专属垃圾文件过滤名单
+# ==========================================
+*.o
+*.d
+*.crf
+*.lnp
+*.axf
+*.htm
+*.sct
+*.dep
+*.ie
+*.i
+
+Listings/
+Objects/
+DebugConfig/
+
+*.uvguix.*
+*.bak
+*.scvd
+.vscode/
