@@ -242,3 +242,70 @@ Counter: 127 -> 64(EWI!) -> 63(RESET!)
 [Phase 2] tick=50000, NOT feeding...
 !!! EWI! System will reset now!
 
+# 7. [07_USART_ADC](./07_USART_ADC)
+
+## 实验描述
+这是一个基于 STM32F103 的 **ADC 单通道中断转换**与 USART 串口输出实验。使用 ADC1 通道 1（PA1）采集模拟电压，通过 **EOC 中断**读取转换结果，再由串口打印原始值和换算后的电压值。
+
+## ADC 中断转换原理
+
+```
+软件触发 → ADC 采样+转换 → 转换完成 → EOC 标志置位
+→ NVIC 触发 ADC1_2_IRQHandler → ISR 读值 + 清标志
+→ 主循环检测 adc_conversion_done → 打印结果 → 延时 → 重复
+```
+
+**"敲门"比喻**：主程序在运行（你在看书），ADC 转换完成（有人敲门），硬件自动跳到中断服务函数读数据（你放下书去开门），读完回去继续主循环（开完门回来继续看书）。
+
+## 实现功能
+
+- **ADC 驱动**：ADC1 通道 1（PA1），独立模式、单通道、单次转换、软件触发、右对齐
+- **EOC 中断**：每次转换完成后硬件触发中断，ISR 中读取 `ADC_DR` 并置位完成标志
+- **ADC 时钟校准**：ADCCLK = PCLK2/6 = 12MHz（≤14MHz），校准带超时保护防止死循环
+- **电压换算**：原始值 → `value × 3300 / 4096` → 以 X.XX V 格式显示
+- **自实现串口**：`UART_SendStr/SendDec/SendHex` 直接寄存器操作，不依赖 MicroLIB
+- **复位源检测**：`CheckAndReportResetSource()` 可识别 POR/PIN/IWDG/WWDG/Soft 复位
+
+## 避坑总结
+
+ **ADC 时钟不能超频**：`SystemInit()` 将 ADCPRE 清零（默认 /2=36MHz），超过 ADC 最大允许的 14MHz，会导致校准失败、转换不触发、读数异常。必须显式调用 `RCC_ADCCLKConfig(RCC_PCLK2_Div6)` 降到 12MHz
+ **校准是必须的**：未校准的 ADC 读数不准，`ADC_StartCalibration()` 不可省略
+ **校准要加超时保护**：如果时钟配置有误，`while(ADC_GetCalibrationStatus())` 可能死循环，加超时计数器是防御性编程的好习惯
+ **中断标志位必须清除**：ISR 中读完数据后必须调用 `ADC_ClearITPendingBit()`，否则中断会反复触发导致死机
+
+## 硬件连接
+
+ **MCU**: STM32F103C8T6 (Blue Pill)
+ **烧录器**: ST-Link V2 (SWCLK/SWDIO/GND/3.3V)
+ **串口模块**: USB-to-TTL (PA9→RX, GND→GND)，波特率 115200
+ **模拟输入**: PA1 ← 电位器中间脚 / 3.3V / GND
+
+## 开发环境
+
+ **IDE**: Keil MDK (uVision5)
+ **语言**: C 语言 (STM32 标准外设库 V3.5.0)
+ **不需要** MicroLIB（使用自实现的寄存器直操作串口函数）
+
+## 结果
+
+========================================
+  ADC Interrupt Conversion Demo
+  Channel: ADC1_CH1 (PA1)
+  Mode: Single + EOC Interrupt
+========================================
+
+ADC initialized. Starting conversion...
+
+[ 1] ADC Value: 2048  (1.65 V)
+[ 2] ADC Value: 2047  (1.65 V)
+[ 3] ADC Value: 2049  (1.65 V)
+[ 4] ADC Value: 4095  (3.30 V)
+[ 5] ADC Value: 0     (0.00 V)
+[ 6] ADC Value: 2048  (1.65 V)
+...
+
+| PA1 输入 | ADC 原始值 | 换算电压 |
+|----------|-----------|---------|
+| GND      | 0         | 0.00 V  |
+| 3.3V     | 4095      | 3.30 V  |
+| 1.65V    | ~2048     | 1.65 V  |
