@@ -165,20 +165,20 @@ Dog will be fed ONLY if ALL tasks report alive.
 
 ## 实现功能
 
-- **WWDG 驱动**：预分频=8，窗口值=0x5F，计数器=0x7F，总超时≈58ms
-- **EWI 早期唤醒中断**：计数器减到 0x40 时触发，距离复位仅剩 910us
-- **两阶段自动演示**：
-  - 阶段 1（首次上电 POR）：正常喂狗 29 次 → 第 30 次故意过早喂狗 → WWDG 复位
-  - 阶段 2（WWDG 复位后）：完全不喂狗 → counter 自然减到 0x3F → WWDG 复位
-- **复位源检测**：通过 RCC CSR 寄存器的 WWDGRSTF 标志位识别 WWDG 复位
-- **自实现串口函数**：`UART_SendStr/SendDec/SendHex` 直接寄存器操作，不依赖 MicroLIB/printf
+ **WWDG 驱动**：预分频=8，窗口值=0x5F，计数器=0x7F，总超时≈58ms
+ **EWI 早期唤醒中断**：计数器减到 0x40 时触发，距离复位仅剩 910us
+ **两阶段自动演示**：
+   阶段 1（首次上电 POR）：正常喂狗 29 次 → 第 30 次故意过早喂狗 → WWDG 复位
+   阶段 2（WWDG 复位后）：完全不喂狗 → counter 自然减到 0x3F → WWDG 复位
+ **复位源检测**：通过 RCC CSR 寄存器的 WWDGRSTF 标志位识别 WWDG 复位
+ **自实现串口函数**：`UART_SendStr/SendDec/SendHex` 直接寄存器操作，不依赖 MicroLIB/printf
 
 ## 避坑总结
 
-- **printf 顺序陷阱**：`WWDG_Enable()` 必须在 `printf` 之后调用，否则打印期间看门狗就超时了
-- **EWI 中断不能 printf**：EWI 到复位只有 910us，printf 一个字符就要 87us，根本来不及。中断中只能做最轻量的操作（设置标志位）
-- **"Connect under Reset"**：WWDG 复位循环会阻止调试器连接，需在 Debug 设置中勾选该选项
-- **BOOT0 救砖**：如果"Connect under Reset"也不行，把 BOOT0 拉高后上电即可绕过用户程序
+ **printf 顺序陷阱**：`WWDG_Enable()` 必须在 `printf` 之后调用，否则打印期间看门狗就超时了
+ **EWI 中断不能 printf**：EWI 到复位只有 910us，printf 一个字符就要 87us，根本来不及。中断中只能做最轻量的操作（设置标志位）
+ **"Connect under Reset"**：WWDG 复位循环会阻止调试器连接，需在 Debug 设置中勾选该选项
+ **BOOT0 救砖**：如果"Connect under Reset"也不行，把 BOOT0 拉高后上电即可绕过用户程序
 
 ## 硬件连接
 
@@ -189,9 +189,9 @@ Dog will be fed ONLY if ALL tasks report alive.
 
 ## 开发环境
 
-- **IDE**: Keil MDK (uVision5)
-- **语言**: C 语言 (STM32 标准外设库 V3.5.0)
-- **不需要** MicroLIB（使用自实现的寄存器直操作串口函数）
+ **IDE**: Keil MDK (uVision5)
+ **语言**: C 语言 (STM32 标准外设库 V3.5.0)
+ **不需要** MicroLIB（使用自实现的寄存器直操作串口函数）
 
 ## 结果
 
@@ -221,7 +221,7 @@ Loop 30:   feed IMMEDIATELY -> TOO EARLY! RESET!
 [Loop 29] wait 30ms -> counter~94 -> Fed OK!
 [Loop 30] NO delay! counter~117 > window=95
      -> Feeding TOO EARLY! RESET!
-```
+
 
 **阶段 2（WWDG 复位后自动进入）：**
 
@@ -274,8 +274,6 @@ Counter: 127 -> 64(EWI!) -> 63(RESET!)
 
 ## 结果
 
-
-```
 # ========================================
 ADC Interrupt Conversion Demo
 Channel: ADC1_CH1 (PA1)
@@ -284,7 +282,6 @@ ADC initialized. Starting conversion...
 [ 1] ADC Value: 4095  (3.29 V)
 [ 2] ADC Value: 4095  (3.29 V)
 [ 3] ADC Value: 4094  (3.29 V)
-```
 
 PA1 接 3.3V → 读数 ~4095（满量程）；接 GND → 读数 ~0；接电位器 → 读数随旋钮线性变化。
 
@@ -301,11 +298,9 @@ ADC_DR 数据寄存器只有 **1 个**。扫描模式下 3 个通道依次转换
 
 ### 数据流
 
-```
 PA1→CH1 ─┐
 PA2→CH2 ─┤  ADC 扫描  ──→  ADC_DR  ──→  DMA1_Ch1  ──→  adc_buffer[0/1/2]
 PA3→CH3 ─┘  (连续)         (固定地址)     (外设→内存)     (递增地址, 循环)
-```
 
 ## 实现功能
 
@@ -337,8 +332,6 @@ PA3→CH3 ─┘  (连续)         (固定地址)     (外设→内存)     (递
 
 ## 结果
 
-
-```
 # ========================================
 ADC Multi-Channel Scan + DMA Demo
 CH1=PA1  CH2=PA2  CH3=PA3
@@ -347,6 +340,5 @@ ADC initialized. Starting conversion...
 [ 1] CH1=4095 CH2=0 CH3=1138  (3.29 V)
 [ 2] CH1=4095 CH2=0 CH3=1137  (3.29 V)
 [ 3] CH1=4095 CH2=0 CH3=1135  (3.29 V)
-```
 
 PA1 接 3.3V → ~4095，PA2 接 GND → ~0，PA3 悬空 → 随机浮空值。三通道数据每 500ms 自动刷新一轮。
