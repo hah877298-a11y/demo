@@ -245,40 +245,26 @@ Counter: 127 -> 64(EWI!) -> 63(RESET!)
 # 7. [07_USART_ADC](./07_USART_ADC)
 
 ## 实验描述
-这是一个基于 STM32F103 的 **ADC 单通道中断转换**与 USART 串口输出实验。使用 ADC1 通道 1（PA1）采集模拟电压，通过 **EOC 中断**读取转换结果，再由串口打印原始值和换算后的电压值。
-
-## ADC 中断转换原理
-
-```
-软件触发 → ADC 采样+转换 → 转换完成 → EOC 标志置位
-→ NVIC 触发 ADC1_2_IRQHandler → ISR 读值 + 清标志
-→ 主循环检测 adc_conversion_done → 打印结果 → 延时 → 重复
-```
-
-**"敲门"比喻**：主程序在运行（你在看书），ADC 转换完成（有人敲门），硬件自动跳到中断服务函数读数据（你放下书去开门），读完回去继续主循环（开完门回来继续看书）。
+这是一个基于 STM32F103 的单通道 ADC 中断转换实验。通过配置 ADC1 通道 1（PA1）实现模拟信号采集，每次转换完成后触发 EOC 中断，在 ISR 中读取转换结果并通过串口打印。
 
 ## 实现功能
 
-- **ADC 驱动**：ADC1 通道 1（PA1），独立模式、单通道、单次转换、软件触发、右对齐
-- **EOC 中断**：每次转换完成后硬件触发中断，ISR 中读取 `ADC_DR` 并置位完成标志
-- **ADC 时钟校准**：ADCCLK = PCLK2/6 = 12MHz（≤14MHz），校准带超时保护防止死循环
-- **电压换算**：原始值 → `value × 3300 / 4096` → 以 X.XX V 格式显示
-- **自实现串口**：`UART_SendStr/SendDec/SendHex` 直接寄存器操作，不依赖 MicroLIB
-- **复位源检测**：`CheckAndReportResetSource()` 可识别 POR/PIN/IWDG/WWDG/Soft 复位
+ **ADC 中断采集**：配置 ADC1_CH1（PA1）为模拟输入，单次转换 + 软件触发模式
+ **EOC 中断**：每次转换完成后硬件置 EOC 标志，触发 `ADC1_2_IRQHandler` 读取 `ADC_DR` 并保存到全局变量
+ **ADC 校准**：上电后执行复位校准 + ADC 校准，确保读数准确（注意：ADC 时钟必须 ≤ 14MHz，设置 PCLK2/6=12MHz）
+ **电压换算**：`voltage_mv = adc_value * 3300 / 4096`，12 位 ADC 量程 0~4095 对应 0~3.3V
+ **串口输出**：自实现寄存器直操作串口函数，不依赖 MicroLIB/printf
 
 ## 避坑总结
 
- **ADC 时钟不能超频**：`SystemInit()` 将 ADCPRE 清零（默认 /2=36MHz），超过 ADC 最大允许的 14MHz，会导致校准失败、转换不触发、读数异常。必须显式调用 `RCC_ADCCLKConfig(RCC_PCLK2_Div6)` 降到 12MHz
- **校准是必须的**：未校准的 ADC 读数不准，`ADC_StartCalibration()` 不可省略
- **校准要加超时保护**：如果时钟配置有误，`while(ADC_GetCalibrationStatus())` 可能死循环，加超时计数器是防御性编程的好习惯
- **中断标志位必须清除**：ISR 中读完数据后必须调用 `ADC_ClearITPendingBit()`，否则中断会反复触发导致死机
+ **ADCCLK 超频陷阱**：`SystemInit()` 默认 ADCPRE=0（PCLK2/2=36MHz），远超 ADC 最大 14MHz，会导致**校准卡死**或转换无响应，必须显式调用 `RCC_ADCCLKConfig(RCC_PCLK2_Div6)`
+ **中断 vs 轮询**：EOC 中断方式比轮询 `ADC_GetFlagStatus` 更高效，CPU 只在转换完成时介入一次
+ **校准顺序不能错**：`ADC_Cmd(ENABLE)` → 等待稳定 → `ADC_ResetCalibration` → `ADC_StartCalibration`，上电后必须先校准
 
 ## 硬件连接
 
  **MCU**: STM32F103C8T6 (Blue Pill)
- **烧录器**: ST-Link V2 (SWCLK/SWDIO/GND/3.3V)
- **串口模块**: USB-to-TTL (PA9→RX, GND→GND)，波特率 115200
- **模拟输入**: PA1 ← 电位器中间脚 / 3.3V / GND
+ **模拟输入**: PA1 ← 3.3V / GND / 电位器中间脚- **串口模块**: USB-to-TTL (PA9→RX, GND→GND)，波特率 115200
 
 ## 开发环境
 
@@ -288,24 +274,79 @@ Counter: 127 -> 64(EWI!) -> 63(RESET!)
 
 ## 结果
 
-========================================
-  ADC Interrupt Conversion Demo
-  Channel: ADC1_CH1 (PA1)
-  Mode: Single + EOC Interrupt
-========================================
 
+```
+# ========================================
+ADC Interrupt Conversion Demo
+Channel: ADC1_CH1 (PA1)
+Mode: Single + EOC Interrupt
 ADC initialized. Starting conversion...
+[ 1] ADC Value: 4095  (3.29 V)
+[ 2] ADC Value: 4095  (3.29 V)
+[ 3] ADC Value: 4094  (3.29 V)
+```
 
-[ 1] ADC Value: 2048  (1.65 V)
-[ 2] ADC Value: 2047  (1.65 V)
-[ 3] ADC Value: 2049  (1.65 V)
-[ 4] ADC Value: 4095  (3.30 V)
-[ 5] ADC Value: 0     (0.00 V)
-[ 6] ADC Value: 2048  (1.65 V)
-...
+PA1 接 3.3V → 读数 ~4095（满量程）；接 GND → 读数 ~0；接电位器 → 读数随旋钮线性变化。
 
-| PA1 输入 | ADC 原始值 | 换算电压 |
-|----------|-----------|---------|
-| GND      | 0         | 0.00 V  |
-| 3.3V     | 4095      | 3.30 V  |
-| 1.65V    | ~2048     | 1.65 V  |
+
+# 8. [08_DMA_ADC](./08_DMA_ADC)
+
+## 实验描述
+在实验 7 的基础上，从"单通道中断"升级为"多通道扫描 + DMA 自动搬运"。ADC1 以扫描模式依次转换 CH1/CH2/CH3（PA1/PA2/PA3），DMA1_Channel1 以循环模式将每次转换结果自动搬运到内存数组 `adc_buffer[3]`，CPU 无需参与数据搬运。
+
+## 核心原理
+
+### 为什么要用 DMA？
+ADC_DR 数据寄存器只有 **1 个**。扫描模式下 3 个通道依次转换，新数据会覆盖旧数据。如果 CPU 不及时来读，前一个通道的转换结果就丢失了。DMA 在每个通道转换完成瞬间（EOC 信号）自动从 ADC_DR 搬到内存，全程硬件完成，不打断 CPU。
+
+### 数据流
+
+```
+PA1→CH1 ─┐
+PA2→CH2 ─┤  ADC 扫描  ──→  ADC_DR  ──→  DMA1_Ch1  ──→  adc_buffer[0/1/2]
+PA3→CH3 ─┘  (连续)         (固定地址)     (外设→内存)     (递增地址, 循环)
+```
+
+## 实现功能
+
+ **GPIO 配置**：PA1/PA2/PA3 全部设为模拟输入 (`GPIO_Mode_AIN`)
+ **ADC 扫描模式**：`ScanConvMode=ENABLE`，`ContinuousConvMode=ENABLE`，`NbrOfChannel=3`
+ **DMA 循环搬运**：`DMA_Mode_Circular`，源地址 `&ADC1->DR`（固定），目的地址 `adc_buffer`（递增），每轮搬 3 次自动循环
+ **上电校准**：正确的初始化顺序 — `RCC_AHB 开时钟` → `DMA_StructInit` → 配置参数 → `DMA_Init` → `ADC_Cmd` → 等稳定 → `校准` → `ADC_DMACmd` → `DMA_Cmd` → `ADC_SoftwareStartConvCmd`
+ **主循环零等待**：直接读取 `adc_buffer[0/1/2]` 即可，无需等待中断标志位
+ **易扩展**：使用 `#define ADC_CHANNEL_COUNT 3` 宏，增减通道只需改一个数字
+
+## 避坑总结
+
+ **时钟必须先开**：`RCC_AHBPeriphClockCmd(DMA1)` 必须在 `DMA_StructInit` 之前调用，否则写 DMA 寄存器无效
+ **DMA 启动时机**：`DMA_Cmd` 和 `ADC_SoftwareStartConvCmd` 必须放在 ADC 校准完成之后，不能在 ADC 校准过程中启动搬运
+ **DMA_Mode_Circular 不可少**：用 `DMA_Mode_Normal` 会在搬完一轮后停转，ADC 还在转换但数据不再更新
+ **数组类型**：必须用 `uint16_t` 而非 `uint8_t`，ADC 12 位结果范围 0~4095，`uint8_t` 存不下
+
+## 硬件连接
+
+ **MCU**: STM32F103C8T6 (Blue Pill)
+ **模拟输入**: PA1/PA2/PA3 ← 分别接 3.3V / GND / 悬空或电位器
+ **串口模块**: USB-to-TTL (PA9→RX, GND→GND)，波特率 115200
+
+## 开发环境
+
+ **IDE**: Keil MDK (uVision5)
+ **语言**: C 语言 (STM32 标准外设库 V3.5.0)
+ **不需要** MicroLIB（使用自实现的寄存器直操作串口函数）
+
+## 结果
+
+
+```
+# ========================================
+ADC Multi-Channel Scan + DMA Demo
+CH1=PA1  CH2=PA2  CH3=PA3
+Mode: Scan + Continuous + DMA Circular
+ADC initialized. Starting conversion...
+[ 1] CH1=4095 CH2=0 CH3=1138  (3.29 V)
+[ 2] CH1=4095 CH2=0 CH3=1137  (3.29 V)
+[ 3] CH1=4095 CH2=0 CH3=1135  (3.29 V)
+```
+
+PA1 接 3.3V → ~4095，PA2 接 GND → ~0，PA3 悬空 → 随机浮空值。三通道数据每 500ms 自动刷新一轮。
